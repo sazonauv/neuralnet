@@ -4,6 +4,9 @@ package org.dlminer.nn.poc;
 import java.util.Arrays;
 import java.util.logging.Logger;
 
+import static org.dlminer.nn.poc.CodingScheme.*;
+import static org.dlminer.nn.poc.UnitType.SIGMOID;
+
 /**
  * Created by slava on 10/09/17.
  */
@@ -13,6 +16,8 @@ public class FeedforwardNeuralNetwork {
 
     private int[] structure;
 
+    private CodingScheme codingScheme;
+
     private Unit[] outputLayer;
 
     private Unit[] inputLayer;
@@ -20,16 +25,20 @@ public class FeedforwardNeuralNetwork {
     private double learningRate;
 
 
-    public FeedforwardNeuralNetwork(int[] structure, double learningRate, UnitType type) {
+    public FeedforwardNeuralNetwork(int[] structure,
+                                    double learningRate,
+                                    UnitType type,
+                                    CodingScheme codingScheme) {
         this.structure = structure;
         this.learningRate = learningRate;
+        this.codingScheme = codingScheme;
         initLayers(type);
     }
 
 
     private void initLayers(UnitType type) {
         UnitFactory factory = null;
-        if (type.equals(UnitType.SIGMOID)) {
+        if (type.equals(SIGMOID)) {
             factory = new UnitFactory(SigmoidUnit.class);
         }
         inputLayer = new Unit[structure[0]];
@@ -61,12 +70,8 @@ public class FeedforwardNeuralNetwork {
 
     public void train(Dataset dataset) {
         for (int i=0; i<dataset.size(); i++) {
-            double[] label;
-            if (outputLayer.length == 1) {
-                label = new double[]{dataset.getLabel(i)};
-            } else {
-                label = integerToBinary(dataset.getLabel(i), outputLayer.length);
-            }
+            double[] label = integerToCode(dataset.getLabel(i),
+                        outputLayer.length, codingScheme);
             backprop(dataset.getPoint(i), label);
         }
     }
@@ -132,46 +137,26 @@ public class FeedforwardNeuralNetwork {
     private double predict(double[] point) {
         clear();
         doForwardPass(point);
-        double[] output = new double[outputLayer.length];
-        for (int i=0; i<output.length; i++) {
-            output[i] = Math.round(outputLayer[i].computeOutput());
-        }
-        return binaryToInteger(output);
+        double[] outputs = new double[outputLayer.length];
+        outputs[getMaxOutputIndex()] = 1;
+        return codeToInteger(outputs, codingScheme);
     }
 
-
-    public static double[] integerToBinary(double number, int digits) {
-        int intNumber = (int) number;
-        char[] bitChars = Integer.toBinaryString(intNumber).toCharArray();
-        double[] bits;
-        if (digits <= 0) {
-            bits = new double[bitChars.length];
-        } else {
-            bits = new double[digits];
-        }
-        int shift = bits.length - bitChars.length;
-        for (int i=0; i<bitChars.length; i++) {
-            char ch = bitChars[i];
-            if (ch == '0') {
-                bits[shift + i] = 0;
-            } else {
-                bits[shift + i] = 1;
+    private int getMaxOutputIndex() {
+        double maxOutput = Double.NEGATIVE_INFINITY;
+        int maxInd = -1;
+        for (int i=0; i<outputLayer.length; i++) {
+            double output = outputLayer[i].computeOutput();
+            if (maxOutput < output) {
+                maxOutput = output;
+                maxInd = i;
             }
         }
-        return bits;
+        return maxInd;
     }
 
 
-    public static double binaryToInteger(double[] bits) {
-        if (bits.length == 1) {
-            return bits[0];
-        }
-        String bitChars = "";
-        for (int i=0; i<bits.length; i++) {
-            bitChars += (int) bits[i];
-        }
-        return Integer.parseInt(bitChars, 2);
-    }
+
 
 
 
@@ -179,20 +164,14 @@ public class FeedforwardNeuralNetwork {
     public static void main(String[] args) {
         int n = 10000;
         int m = 10;
-
-//        Dataset dataset = Dataset.getZeroOneSequences(n, m);
-
         int k = 4;
-        Dataset dataset = Dataset.getIncreasingSequences(n, m, 3);
-        int outUnits = integerToBinary(k-1, -1).length;
-
+        Dataset dataset = Dataset.getIncreasingSequences(n, m, k);
         System.out.println(dataset.toString());
 
         log.info("Initializing the neural network");
-        int[] structure = new int[] {dataset.getFeatureCount(), m,
-                outUnits};
+        int[] structure = new int[] {dataset.getFeatureCount(), m, k};
         FeedforwardNeuralNetwork network = new FeedforwardNeuralNetwork(
-                structure, 1, UnitType.SIGMOID);
+                structure, 1, SIGMOID, ONEVSALL);
 
         log.info("Training");
         network.train(dataset);
